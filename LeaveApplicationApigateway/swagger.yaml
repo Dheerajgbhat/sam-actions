@@ -1,0 +1,272 @@
+openapi: 3.0.1
+info:
+  title: Parcel Status API Swagger Doc
+  description: ''
+  version: 1.0.0
+
+tags:
+- name: leaveapplication
+  description: ""
+paths:
+  
+  /leave:
+    options:
+        summary: CORS support
+        description: |
+          Enable CORS by returning correct headers
+        tags:
+        - CORS
+        responses:
+          200:
+            description: Default response for CORS method
+            headers:
+              Access-Control-Allow-Origin:
+                schema:
+                  type: string
+              Access-Control-Allow-Methods:
+                schema:
+                  type: string
+              Access-Control-Allow-Headers:
+                schema:
+                  type: string
+                  
+            content: {}
+        x-amazon-apigateway-integration:
+          type: mock
+          requestTemplates:
+            application/json: |
+              {
+                "statusCode" : 200
+              }
+          responses:
+            default:
+              statusCode: "200"
+              responseParameters:
+                method.response.header.Access-Control-Allow-Headers: '''Content-Type,X-Amz-Date,Authorization,X-Api-Key'''
+                method.response.header.Access-Control-Allow-Methods: '''*'''
+                method.response.header.Access-Control-Allow-Origin: '''*'''
+              responseTemplates:
+                application/json: |
+                  {}
+    get:
+      parameters:
+      - name: "email"
+        in: "query"
+        schema:
+          type: "string"
+      responses:
+        '200':
+          description: OK
+          headers:
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            content: {}
+        '400':
+          description: Invalid Request
+          headers:
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            content: {}
+      security:
+      - api_key: []
+      - order-authorizer: []
+      x-amazon-apigateway-integration:
+        credentials: 
+          Fn::Sub: '${LeaveiamRole.Arn}'
+        uri:
+          Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetLeaveFuction.Arn}/invocations
+        httpMethod: POST
+        timeoutInMillis: 3000
+        type: "aws_proxy"
+        responses:
+          default:
+            statusCode: "200"
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: '''Content-Type,X-Amz-Date,Authorization,X-Api-Key'''
+              method.response.header.Access-Control-Allow-Methods: '''*'''
+              method.response.header.Access-Control-Allow-Origin: '''*'''
+            responseTemplates:
+              application/json: |
+                {}      
+    post:
+      responses:
+        '200':
+          description: OK
+          headers:
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APICreatUpdateDeleteResponse'
+        '400':
+          description: Invalid Request body
+          headers:
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            content: {}
+          content: {}
+        '500':
+          description: Internal Server Error
+          headers:
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            content: {}
+          content: {}
+      requestBody:
+        description: Request body input schema for item
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/postOrder'
+      
+      security:
+      - api_key: []
+      - order-authorizer: []
+      x-amazon-apigateway-integration:
+        credentials: 
+          Fn::Sub: '${OrderiamRole.Arn}'
+        httpMethod: "POST"
+        uri: 
+          Fn::Sub: arn:aws:apigateway:${AWS::Region}:states:action/StartSyncExecution
+        responses:
+          default:
+            statusCode: "200"
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: '''Content-Type,X-Amz-Date,Authorization,X-Api-Key'''
+              method.response.header.Access-Control-Allow-Methods: '''*'''
+              method.response.header.Access-Control-Allow-Origin: '''*'''    
+            responseTemplates:  
+              application/json: |
+                #set ($bodyObj = $util.parseJson($input.body))
+                #if ($bodyObj.status == "SUCCEEDED")
+                    #set ($bodyOutput = $util.parseJson($bodyObj.output))
+                    #set ($innerBody = $util.parseJson($bodyOutput.body))
+                    {
+                         "body":"$bodyObj.output"
+                    }
+                #elseif ($bodyObj.status == "FAILED")
+                    #set ($cause = $util.parseJson($bodyObj.cause))
+                    #set($context.responseOverride.status = 400)
+                        {
+                            "message": "Fail to create item.",
+                            "errorMessage": "$cause.errorMessage",
+                            "error": "$bodyObj.error"
+                        }
+                #else
+                    #set($context.responseOverride.status = 500)
+                    $input.body
+                #end 
+        requestTemplates:
+          application/json: 
+            Fn::Sub:
+              - |-
+                #set($body= $input.json('$'))
+                #set($inputRoot='{ "body" :'+$body+',"apiInfo":{"httpMethod" :"'+ $context.httpMethod+'"}}')
+
+                {
+                  "input" :"$util.escapeJavaScript($inputRoot)",
+                  "stateMachineArn": "${StepFunctionArn}"   
+                }
+              - StepFunctionArn:
+                  Fn::Sub: ${LeaveApplicationStepFunction.Arn}
+        passthroughBehavior: "when_no_match"
+        type: "aws"
+    
+        
+securityDefinitions:
+        api_key:
+          type: apiKey
+          name: x-api-key
+          in: header
+        order-authorizer:
+          type: apiKey
+          name: Authorization
+          in: header
+          x-amazon-apigateway-authtype: custom
+          x-amazon-apigateway-authorizer:
+            type: token
+            authorizerUri:
+                Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${OrderAuthorizerFunction.Arn}/invocations
+            authorizerCredentials:
+                Fn::Sub: ${OrderiamRole.Arn}
+            authorizerResultTtlInSeconds: 10        
+  
+components:
+  schemas:
+    postOrder:
+      required:
+      - id
+      type: object
+      properties:
+        id:
+          type: string
+    putOrder:
+      required:
+      - id
+      type: object
+      properties:
+        id:
+          type: string    
+    
+    OrderSearch:
+      type: object
+      properties:
+        body:
+          type: object
+    ApiResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        errorMessages:
+          type: string
+
+ 
+x-amazon-apigateway-request-validators:
+  all:
+    validateRequestBody: true
+    validateRequestParameters: true
+  params:
+    validateRequestBody: false
+    validateRequestParameters: true
+  body:
+    validateRequestBody: true
+    validateRequestParameters: false

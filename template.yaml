@@ -1,9 +1,9 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  sam-actions
+  sam-action-demo
 
-  Sample SAM Template for sam-actions
+  Sample SAM Template for sam-action-demo
   
 # More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
 Globals:
@@ -11,16 +11,166 @@ Globals:
     Timeout: 3
 
 Resources:
-  SAMActionsFunction:
+  LeaveApprovalFuction:
     Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
     Properties:
-      CodeUri: sam-actions/
+      FunctionName: !Sub "AWS-LeaveApproval"
+      CodeUri: Leave-Application/
       Handler: app.lambdaHandler
       Runtime: nodejs14.x
-      Events:
-        HelloWorld:
-          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
-          Properties:
-            Path: /hello
-            Method: get
+      Environment:
+        Variables:
+          LeaveTable: !Ref LeaveTable
+          UserInfoTable: !Ref UserInfoTable        
+      Policies: 
+        - AWSLambdaDynamoDBExecutionRole
+        - DynamoDBCrudPolicy:
+            TableName: !Ref LeaveTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UserInfoTable
+        
+  LeaveApplyFuction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      FunctionName: !Sub "AWS-LeaveApply"
+      CodeUri: Leave-Application/
+      Handler: app.lambdaHandler
+      Runtime: nodejs14.x
+      Environment:
+        Variables:
+          LeaveTable: !Ref LeaveTable
+          UserInfoTable: !Ref UserInfoTable        
+      Policies: 
+        - AWSLambdaDynamoDBExecutionRole
+        - DynamoDBCrudPolicy:
+            TableName: !Ref LeaveTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UserInfoTable
 
+
+  LeaveApprovalFuction1:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      FunctionName: !Sub "AWS-LeaveApproval1"
+      CodeUri: Leave-Application/
+      Handler: app.lambdaHandler
+      Runtime: nodejs14.x
+      Environment:
+        Variables:
+          LeaveTable: !Ref LeaveTable
+          UserInfoTable: !Ref UserInfoTable        
+      Policies: 
+        - AWSLambdaDynamoDBExecutionRole
+        - DynamoDBCrudPolicy:
+            TableName: !Ref LeaveTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UserInfoTable
+        
+  GetLeaveFuction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      FunctionName: !Sub "GetLeave"
+      CodeUri: Leave-Application/
+      Handler: app.lambdaHandler
+      Runtime: nodejs14.x
+      Environment:
+        Variables:
+          LeaveTable: !Ref LeaveTable
+          UserInfoTable: !Ref UserInfoTable        
+      Policies: 
+        - AWSLambdaDynamoDBExecutionRole
+        - DynamoDBCrudPolicy:
+            TableName: !Ref LeaveTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UserInfoTable
+
+  LeaveApplicationStepFunction:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Type: EXPRESS
+      Name: !Sub "LeaveApplicationStepFunction"
+      Policies:
+        # - AWSLambda_FullAccess
+        # - AmazonSNSFullAccess
+        - CloudWatchLogsFullAccess
+        - LambdaInvokePolicy:
+            Effect: Allow
+            Action: lambda:InvokeFunction
+            FunctionName: "*"
+            Resource:
+              - !GetAtt LeaveApprovalFuction.Arn
+              - !GetAtt LeaveApplyFuction.Arn
+              - !GetAtt LeaveApprovalFuction1.Arn
+              - !GetAtt GetLeaveFuction.Arn
+      Logging:
+        IncludeExecutionData: true
+        Level: ALL
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt LeaveApplicationLogGroup.Arn
+      Definition:
+        StartAt: S3LoggerTopic
+        States:
+          LeaveApply:
+            Type: Task
+            Resource: !GetAtt LeaveApplyFuction.Arn
+            Next: DaysChoice
+          DaysChoice:
+            Type: Choice
+            Choices:
+              - Variable: "$.body.days"
+                BooleanEquals: true
+                Next: LeaveApproval
+              - Variable: "$.body.days"
+                BooleanEquals: false
+                Next: Succeed
+          LeaveApproval:
+            Type: Task
+            Resource: !GetAtt LeaveApprovalFuction1.Arn
+            Next: Succeed
+          Succeed:
+            Type: Succeed
+
+
+  LeaveApplicationLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 7
+      LogGroupName: !Sub "LeaveApplicationLogGroup"
+
+
+  
+  UserInfoTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "UserInfo"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: "email_id"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "email_id"
+          KeyType: "HASH"
+  
+  LeaveTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "LeaveTable"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: "Id"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "Id"
+          KeyType: "HASH"
+
+  LeaveApplicationApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "LeaveApplication"
+      StageName: !Ref Environment
+      DefinitionBody:
+        Fn::Transform:
+          Name: AWS::Include
+          Parameters:
+            Location: LeaveApplicationApiGateway/swagger.yaml
